@@ -21,7 +21,7 @@ char buffer_UART[40];
 uint8_t VALOR_POTE1 = 0;
 uint8_t VALOR_POTE2 = 0;
 uint8_t VALOR_LEDS = 0;
-uint8_t MODO_MAESTRO = 0; // 0 = Modo Ver Potes, 1 = Modo Escribir LEDs
+uint8_t MODO_MAESTRO = 0;
 
 void SETUP(){
 	DDRD = 0xFF;
@@ -48,12 +48,12 @@ void ACTUALIZAR_LEDS(uint8_t valor) {
 	PORTB = (PORTB & 0b11111100)|((valor>>6) & 0b00000011);
 }
 
-// Función SPI limpia
+
 uint8_t SPI_TRX(uint8_t dato_envio) {
 	SS_LOW();
 	SPI_WRITE(dato_envio);
 	_delay_us(30);
-	SPI_WRITE(0x00); // Dummy para leer
+	SPI_WRITE(0x00);
 	uint8_t dato_recibido = SPDR;
 	SS_HIGH();
 	return dato_recibido;
@@ -71,41 +71,32 @@ int main(void)
 
 	while (1)
 	{
-		// ---------------------------------------------------------
-		// 1. SIEMPRE LEER SENSORES (Para tener el dato actualizado)
-		// ---------------------------------------------------------
+
 		VALOR_POTE1 = SPI_TRX('1');
 		_delay_us(50);
 		VALOR_POTE2 = SPI_TRX('2');
 		_delay_us(50);
 
-		// ---------------------------------------------------------
-		// 2. ENVIAR COMANDOS DE LEDS SEGUN EL MODO
-		// ---------------------------------------------------------
 		if (MODO_MAESTRO == 0) {
-			// MODO SENSOR: Mandamos '4' para que el esclavo muestre sus potes
+		
 			SS_LOW(); SPI_WRITE('4'); SS_HIGH();
-			ACTUALIZAR_LEDS(VALOR_POTE1); // Maestro muestra su Pote 1
+			ACTUALIZAR_LEDS(VALOR_POTE1); 
 		}
 		else {
-			// MODO LEDS: Mandamos '3' + VALOR para controlar al esclavo
+		
 			SS_LOW();
 			SPI_WRITE('3');
 			_delay_us(30);
 			SPI_WRITE(VALOR_LEDS);
 			SS_HIGH();
-			ACTUALIZAR_LEDS(VALOR_LEDS); // Maestro muestra el mismo valor
+			ACTUALIZAR_LEDS(VALOR_LEDS); 
 		}
 
-		// ---------------------------------------------------------
-		// 3. LEER UART (Filtrando el Enter)
-		// ---------------------------------------------------------
+
 		if(COMANDO_NUEVO())
 		{
 			RECIBIR_COMANDO(buffer_UART);
-			
-			// ¡ESTO ARREGLA EL 00001010!
-			// Si el caracter es menor a 32 (Enter, Espacio, etc), no hacemos NADA.
+
 			if(buffer_UART[0] >= 32)
 			{
 				if(buffer_UART[0] == 'm') {
@@ -114,7 +105,7 @@ int main(void)
 					else UART_PrintString("MODO: Ver Sensores\n");
 				}
 				else if (MODO_MAESTRO == 0) {
-					// Solo imprimimos voltajes en MODO 0
+		
 					if(buffer_UART[0] == '1') {
 						UART_PrintText("Pote 1: ");
 						CONVERSION_VOLTAJE(VALOR_POTE1);
@@ -125,7 +116,7 @@ int main(void)
 					}
 				}
 				else {
-					// En MODO 1, convertimos el texto a numero para los LEDs
+
 					VALOR_LEDS = atoi(buffer_UART);
 				}
 			}
