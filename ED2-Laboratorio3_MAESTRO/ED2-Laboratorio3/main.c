@@ -1,13 +1,6 @@
 //-----------------------------------------------
 // UNIVERSIDAD DEL VALLE DE GUATEMALA
-// ELECTRÓNICA DIGITAL 2 - SECCIÓN - 20 -
 // LAB_SPI_MASTER.c
-// AUTOR1: ANTHONY ALEJANDRO BOTEO LÓPEZ
-// AUTOR2: ALMA LISBETH MATA IXCAYAU
-// PROYECTO: LABORATORIO SPI
-// HARDWARE: ATMEGA328P
-// CREADO: 02/02/2026
-// ULTIMA MODIFICACION: 02/03/2025
 //-----------------------------------------------
 
 #define F_CPU 16000000UL
@@ -22,45 +15,48 @@
 #define SS_LOW() PORTB &= ~(1<<DDB2);
 #define SS_HIGH() PORTB |= (1<<DDB2);
 
-//BUFFERS
 char buffer_UART[40];
 
-//VARIABLES
+// VARIABLES
 uint8_t VALOR_POTE1 = 0;
 uint8_t VALOR_POTE2 = 0;
-uint8_t VALOR_LEDS = 0; // Variable que guarda el número recibido por UART (0-255)
-uint8_t MODO_MAESTRO = 0; // 0 = Modo Original (Sensores), 1 = Nuevo Modo (LEDs UART)
-
-void INSTRUCCIONES_UART(uint8_t P1, uint8_t P2);
+uint8_t VALOR_LEDS = 0;
+uint8_t MODO_MAESTRO = 0; // 0 = Modo Ver Potes, 1 = Modo Escribir LEDs
 
 void SETUP(){
 	DDRD = 0xFF;
 	PORTD = 0x00;
-	
 	DDRB |= ((1<<PINB0)|(1<<PINB1));
 	PORTB &= ~((1<<PINB0)|(1<<PINB1));
 	SS_HIGH();
 }
 
 void CONVERSION_VOLTAJE(uint8_t VALOR_ADC){
-	uint32_t LECTURA_ADC = ((uint32_t)VALOR_ADC * 5000) / 1023;
+	uint32_t LECTURA_ADC = ((uint32_t)VALOR_ADC * 5000) / 255;
 	uint8_t PARTE_ENTERA = LECTURA_ADC / 1000;
 	uint8_t PARTE_DECIMAL = (LECTURA_ADC % 1000) / 10;
 	
 	UART_PrintNumber(PARTE_ENTERA);
 	UART_PrintText(".");
-	if(PARTE_DECIMAL < 10)
-	{
-		UART_PrintText("0");
-	}
+	if(PARTE_DECIMAL < 10) UART_PrintText("0");
 	UART_PrintNumber(PARTE_DECIMAL);
-	UART_PrintString("V");
+	UART_PrintString("V\n");
 }
 
 void ACTUALIZAR_LEDS(uint8_t valor) {
-	// Mapeo para mostrar el byte en PORTD[7:2] y PORTB[1:0]
 	PORTD = (PORTD & 0b00000011)|((valor<<2)& 0b11111100);
 	PORTB = (PORTB & 0b11111100)|((valor>>6) & 0b00000011);
+}
+
+// Función SPI limpia
+uint8_t SPI_TRX(uint8_t dato_envio) {
+	SS_LOW();
+	SPI_WRITE(dato_envio);
+	_delay_us(30);
+	SPI_WRITE(0x00); // Dummy para leer
+	uint8_t dato_recibido = SPDR;
+	SS_HIGH();
+	return dato_recibido;
 }
 
 int main(void)
@@ -70,91 +66,71 @@ int main(void)
 	SPI_INIT(SPI_MASTER_DIV16, DATA_MSB, CLOCK_LOW, FIRST_EDGE);
 	sei();
 
-	UART_PrintString("Bienvenido\n");
-	UART_PrintString("m: Cambiar Modo\n");
-	UART_PrintString("1: Ver Pote 1\n");
-	UART_PrintString("2: Ver Pote 2\n");
-	UART_PrintString("Escriba un numero (0-255) para los LEDs\n");
-	
+	UART_PrintString("Sistema Iniciado\n");
+	UART_PrintString("Use 'm' para cambiar modo\n");
+
 	while (1)
 	{
-		// Revisar UART para leer comandos o el numero para los LEDs
-		INSTRUCCIONES_UART(VALOR_POTE1, VALOR_POTE2);
-		
-		switch(MODO_MAESTRO)
-		{
-			case 0: // --- MODO ORIGINAL (LEER POTES) ---
-			// Pedir Pote 1
-			SS_LOW();
-			SPI_WRITE('1');
-			_delay_us(50);
-			SPI_WRITE(0x00);
-			VALOR_POTE1 = SPDR;
-			SS_HIGH();
-			
-			_delay_ms(10);
-			
-			// Pedir Pote 2
-			SS_LOW();
-			SPI_WRITE('2');
-			_delay_us(50);
-			SPI_WRITE(0x00);
-			VALOR_POTE2 = SPDR;
-			SS_HIGH();
+		// ---------------------------------------------------------
+		// 1. SIEMPRE LEER SENSORES (Para tener el dato actualizado)
+		// ---------------------------------------------------------
+		VALOR_POTE1 = SPI_TRX('1');
+		_delay_us(50);
+		VALOR_POTE2 = SPI_TRX('2');
+		_delay_us(50);
 
-			// En modo original, mostramos Pote 1 en LEDs del maestro
-			ACTUALIZAR_LEDS(VALOR_POTE1);
-			break;
-			
-			case 1: // --- NUEVO MODO (UART A LEDS) ---
-			
-			// Enviar el valor ingresado por UART al esclavo
+		// ---------------------------------------------------------
+		// 2. ENVIAR COMANDOS DE LEDS SEGUN EL MODO
+		// ---------------------------------------------------------
+		if (MODO_MAESTRO == 0) {
+			// MODO SENSOR: Mandamos '4' para que el esclavo muestre sus potes
+			SS_LOW(); SPI_WRITE('4'); SS_HIGH();
+			ACTUALIZAR_LEDS(VALOR_POTE1); // Maestro muestra su Pote 1
+		}
+		else {
+			// MODO LEDS: Mandamos '3' + VALOR para controlar al esclavo
 			SS_LOW();
-			SPI_WRITE('3'); // Comando '3': Preparar esclavo para recibir dato LED
-			_delay_us(50);
-			SPI_WRITE(VALOR_LEDS); // Enviamos el valor (0-255)
+			SPI_WRITE('3');
+			_delay_us(30);
+			SPI_WRITE(VALOR_LEDS);
 			SS_HIGH();
-			
-			// Mostramos el mismo valor en los LEDs del maestro
-			ACTUALIZAR_LEDS(VALOR_LEDS);
-			break;
+			ACTUALIZAR_LEDS(VALOR_LEDS); // Maestro muestra el mismo valor
 		}
 
-		_delay_ms(100);
-	}
-}
-
-void INSTRUCCIONES_UART(uint8_t P1, uint8_t P2){
-	if(COMANDO_NUEVO())
-	{
-		RECIBIR_COMANDO(buffer_UART);
-		
-		// 1. Convertir siempre el buffer a numero
-		// Si el usuario escribe "255", VALOR_LEDS será 255.
-		// Si escribe "1", VALOR_LEDS será 1 (leds casi apagados).
-		VALOR_LEDS = atoi(buffer_UART);
-
-		// 2. Revisar comandos especificos
-		if(buffer_UART[0] == 'm') {
-			MODO_MAESTRO = !MODO_MAESTRO;
-			if(MODO_MAESTRO == 1) UART_PrintString("\nMODO: Escribir Valor LEDs\n");
-			else UART_PrintString("\nMODO: Leer Sensores\n");
+		// ---------------------------------------------------------
+		// 3. LEER UART (Filtrando el Enter)
+		// ---------------------------------------------------------
+		if(COMANDO_NUEVO())
+		{
+			RECIBIR_COMANDO(buffer_UART);
+			
+			// ¡ESTO ARREGLA EL 00001010!
+			// Si el caracter es menor a 32 (Enter, Espacio, etc), no hacemos NADA.
+			if(buffer_UART[0] >= 32)
+			{
+				if(buffer_UART[0] == 'm') {
+					MODO_MAESTRO = !MODO_MAESTRO;
+					if(MODO_MAESTRO) UART_PrintString("MODO: Escribir LEDs\n");
+					else UART_PrintString("MODO: Ver Sensores\n");
+				}
+				else if (MODO_MAESTRO == 0) {
+					// Solo imprimimos voltajes en MODO 0
+					if(buffer_UART[0] == '1') {
+						UART_PrintText("Pote 1: ");
+						CONVERSION_VOLTAJE(VALOR_POTE1);
+					}
+					else if(buffer_UART[0] == '2') {
+						UART_PrintText("Pote 2: ");
+						CONVERSION_VOLTAJE(VALOR_POTE2);
+					}
+				}
+				else {
+					// En MODO 1, convertimos el texto a numero para los LEDs
+					VALOR_LEDS = atoi(buffer_UART);
+				}
+			}
 		}
 		
-		else if(buffer_UART[0] == '1' && buffer_UART[1] < 32)
-		{
-			UART_PrintText("Pote 1: ");
-			CONVERSION_VOLTAJE(P1);
-		}
-		else if (buffer_UART[0] == '2' && buffer_UART[1] < 32)
-		{
-			UART_PrintText("Pote 2: ");
-			CONVERSION_VOLTAJE(P2);
-		}
-		else
-		{
-			
-			// UART_PrintString("Valor actualizado.");
-		}
+		_delay_ms(50);
 	}
 }
