@@ -2,11 +2,11 @@
 # Automatically-generated file. Do not edit or delete the file
 ################################################################################
 
-ADC\ADC_libreria.c
+ADC\ADC_LIB.c
 
 main.c
 
-SPI\SPI_libreria.c
+SPI_LIB\SPI_LIB.c
 
-UART\UART.c
+UART\UART_LIB.c
 
