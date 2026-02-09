@@ -48,7 +48,7 @@ int main(void)
 		POTE1 = ADC_READ(1)/4;
 		POTE2 = ADC_READ(2)/4;
 		
-		PORTD =(POTE2>>2)<<2;
+		PORTD = (PORTD & 0b00000011)|((POTE2<<2)& 0b11111100);
 		PORTB = (PORTB & 0b11111100)|((POTE2 >> 6) & 0b00000011);
 	}
 }
