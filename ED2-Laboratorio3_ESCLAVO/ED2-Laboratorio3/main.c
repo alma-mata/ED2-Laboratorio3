@@ -7,8 +7,7 @@
 // PROYECTO: LABORATORIO SPI
 // HARDWARE: ATMEGA328P
 // CREADO: 02/02/2026
-// ULTIMA MODIFICACION: 09/02/2026
-// DESCRIPCIÓN: Esclavo que envía sus ADCs y recibe un comando '3' para mostrar datos en sus LEDs.
+// ULTIMA MODIFICACION: 02/03/2025
 //-----------------------------------------------
 
 #define F_CPU 16000000UL
@@ -21,24 +20,20 @@
 
 volatile uint8_t POTE1 = 0;
 volatile uint8_t POTE2 = 0;
-
-// Bandera para máquina de estados en SPI ISR
-// 0: Esperando comando ('1', '2', '3')
-// 1: El siguiente byte es el DATO para los LEDs
-volatile uint8_t proximo_byte_es_dato = 0;
-volatile uint8_t valor_recibido_maestro = 0;
+volatile uint8_t DATO_RECIBIDO = 0;
+volatile uint8_t MODO_LED = 0; // 0 = Mostrar Pote2 local, 1 = Mostrar Dato del Maestro
+volatile uint8_t flag_next_is_data = 0;
 
 void setup(){
-	DDRD = 0xFF; // LEDs
+	DDRD = 0xFF;
 	PORTD = 0x00;
-	DDRB |= ((1 << PINB0)|(1<<PINB1)); // LEDs parte alta
+	DDRB|= ((1 << PINB0)|(1<<PINB1));
 	PORTB &= ~((1 << PINB0)|(1<<PINB1));
 }
 
-// Función para actualizar LEDs (copiada la lógica de bits del original)
 void ACTUALIZAR_LEDS(uint8_t valor) {
-	PORTD = (PORTD & 0b00000011) | ((valor << 2) & 0b11111100);
-	PORTB = (PORTB & 0b11111100) | ((valor >> 6) & 0b00000011);
+	PORTD = (PORTD & 0b00000011)|((valor<<2)& 0b11111100);
+	PORTB = (PORTB & 0b11111100)|((valor >> 6) & 0b00000011);
 }
 
 int main(void)
@@ -50,53 +45,56 @@ int main(void)
 	
 	while (1)
 	{
-		// Leemos los sensores continuamente
 		POTE1 = ADC_READ(1)/4;
 		POTE2 = ADC_READ(2)/4;
 		
-		// --- MODIFICACION IMPORTANTE ---
-		// Comenté la actualización de LEDs basada en POTE2.
-		// Si dejaras esto descomentado, los LEDs parpadearían entre el valor
-		// del Maestro y el POTE2 local muy rápido.
-		// Ahora los LEDs solo obedecen al Maestro (comando '3').
-		
-		// ACTUALIZAR_LEDS(POTE2); <--- ANTES ESTABA ESTO
+		switch(MODO_LED)
+		{
+			case 0:
+			// Modo Original: El esclavo muestra su propio potenciometro 2
+			ACTUALIZAR_LEDS(POTE2);
+			break;
+			
+			case 1:
+			// Nuevo Modo: El esclavo muestra el numero que mandó el maestro
+			ACTUALIZAR_LEDS(DATO_RECIBIDO);
+			break;
+		}
 	}
 }
 
 ISR(SPI_STC_vect){
 	
-	uint8_t recibido = SPDR; // Leer lo que envió el maestro
+	uint8_t received = SPDR;
 	
-	if (proximo_byte_es_dato == 1)
-	{
-		// Si la bandera está activa, lo que acabamos de recibir es el NÚMERO del maestro
-		valor_recibido_maestro = recibido;
-		ACTUALIZAR_LEDS(valor_recibido_maestro);
-		
-		proximo_byte_es_dato = 0; // Reiniciamos la bandera, volvemos a esperar comandos
-		SPDR = 0x00; // Limpiamos buffer de salida
+	if (flag_next_is_data == 1) {
+		// Recibimos el valor numérico (0-255)
+		DATO_RECIBIDO = received;
+		flag_next_is_data = 0;
+		SPDR = 0;
 	}
-	else
-	{
-		// MODO COMANDO
-		if(recibido == '1')
+	else {
+		// Recibimos un comando
+		if(received == '1')
 		{
-			SPDR = POTE1; // Cargamos Pote1 para el proximo ciclo de reloj
+			SPDR = POTE1;
+			MODO_LED = 0; // Regresamos a modo normal si piden sensores
 		}
-		else if (recibido == '2')
+		else if (received == '2')
 		{
-			SPDR = POTE2; // Cargamos Pote2 para el proximo ciclo de reloj
+			SPDR = POTE2;
+			MODO_LED = 0; // Regresamos a modo normal si piden sensores
 		}
-		else if (recibido == '3')
+		else if (received == '3')
 		{
-			// El maestro quiere escribir en mis LEDs
-			proximo_byte_es_dato = 1; // Activamos bandera
-			SPDR = 0x00; // No enviamos nada útil de vuelta
+			// El maestro avisa que el SIGUIENTE byte es el valor para los LEDs
+			flag_next_is_data = 1;
+			MODO_LED = 1; // Cambiamos a modo "Mostrar Dato Maestro"
+			SPDR = 0;
 		}
 		else
 		{
-			SPDR = 0x00;
+			SPDR = 0;
 		}
 	}
 }
