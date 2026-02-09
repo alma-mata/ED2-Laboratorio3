@@ -73,6 +73,9 @@ int main(void)
 	SPI_INIT(SPI_MASTER_DIV16, DATA_MSB, CLOCK_LOW, FIRST_EDGE);
 	sei();
 
+	UART_PrintString("Bienvenido\n");
+	UART_PrintString("1: potenciómetro 1\n");
+	UART_PrintString("2: potenciómetro 2\n");	
 	
 	/* Replace with your application code */
 	while (1)
@@ -96,7 +99,7 @@ int main(void)
 		SS_HIGH();
 		
 		//ACTUALIZAR LEDS DEL MAESTRO EN BASE A POTE 1
-		PORTD = (VALOR_POTE1>>2)<<2;
+		PORTD = (PORTD & 0b00000011)|((VALOR_POTE1<<2)& 0b11111100);
 		PORTB = (PORTB&0b11111100)|((VALOR_POTE1>>6) & 0b00000011);
 		
 		//MANDAR DATOS AL UART
